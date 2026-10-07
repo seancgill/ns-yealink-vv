@@ -1,0 +1,24 @@
+[Unit]
+Description=Yealink visual voicemail for NetSapiens API v2
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=yealink-vv
+Group=yealink-vv
+WorkingDirectory=/opt/ns-yealink-vv
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/yealink-vv.env
+ExecStart=/usr/bin/node /opt/ns-yealink-vv/server.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

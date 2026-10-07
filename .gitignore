@@ -1,0 +1,15 @@
+node_modules/
+logs/
+app_info/
+data/
+*.log
+.env
+coverage/
+dist/
+
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx

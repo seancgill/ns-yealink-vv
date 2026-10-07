@@ -1,0 +1,27 @@
+{
+  "name": "ns-yealink-vv",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Yealink XML visual voicemail using the NetSapiens API v2",
+  "main": "server.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "jest --runInBand",
+    "check-api": "node scripts/check-api.js",
+    "generate-key": "node scripts/generate-key.js",
+    "phone-url": "node scripts/phone-url.js"
+  },
+  "dependencies": {
+    "axios": "^1.12.0",
+    "dotenv": "^17.2.4",
+    "express": "^5.1.0",
+    "xml2js": "^0.6.2"
+  },
+  "devDependencies": {
+    "jest": "^30.0.0",
+    "supertest": "^7.1.0"
+  }
+}
