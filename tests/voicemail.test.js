@@ -21,7 +21,7 @@ test('rejects missing identity and invalid key without an API call', async () =>
   expect((await request(app).get('/yealink_vv?user_id=1000&domain=example.test&auth=wrong')).status).toBe(403);
   expect(service.fetchVoicemails).not.toHaveBeenCalled();
 });
-test.each(['/voicemail_detail', '/execute_play', '/execute_stop', '/save_voicemail', '/delete_voicemail', '/forward_voicemail_input', '/forward_voicemail'])('auth protects %s and its legacy alias', async action => {
+test.each(['/voicemail_detail', '/voicemail_transcript', '/execute_play', '/execute_stop', '/save_voicemail', '/delete_voicemail', '/forward_voicemail_input', '/forward_voicemail'])('auth protects %s and its legacy alias', async action => {
   for (const prefix of ['/yealink_vv', '']) expect((await request(app).get(prefix + action + '?user_id=1000&domain=example.test&folder=new&file=vm.wav')).status).toBe(403);
   expect(service.fetchVoicemailDetail).not.toHaveBeenCalled();
   expect(service.deleteVoicemail).not.toHaveBeenCalled();
@@ -81,6 +81,67 @@ test.each([['/execute_play', 'Wav.Play'], ['/execute_stop', 'Wav.Stop']])('%s us
 test('missing message is 404', async () => {
   service.fetchVoicemailDetail.mockResolvedValueOnce(null);
   expect((await request(app).get(route('/voicemail_detail', '&folder=new&file=vm.wav'))).status).toBe(404);
+});
+
+test('transcript menu follows message text availability', async () => {
+  for (const text of ['', '   ', 'Hello & <friend>']) {
+    service.fetchVoicemailDetail.mockResolvedValueOnce({ ...message, 'file-transcript-text': text });
+    const response = await request(app).get(route('/voicemail_detail', '&folder=new&file=vm-123.wav'));
+    const doc = await parseStringPromise(response.text);
+    const item = doc.YealinkIPPhoneTextMenu.MenuItem.find(item => item.Prompt[0] === 'Read Transcript');
+    expect(Boolean(item)).toBe(Boolean(text.trim()));
+    if (item) expect(new URL(item.URI[0]).pathname).toBe('/yealink_vv/voicemail_transcript');
+  }
+});
+
+test('transcript is escaped and Back retains authenticated mailbox identity', async () => {
+  service.fetchVoicemailDetail.mockResolvedValueOnce({ ...message, 'file-transcript-text': 'Hello & <friend>\u0001 😀' });
+  const response = await request(app).get(route('/voicemail_transcript', '&folder=save&file=vm-123.wav'));
+  expect(response.status).toBe(200);
+  const screen = (await parseStringPromise(response.text)).YealinkIPPhoneTextScreen;
+  expect(screen.Text[0]).toBe('Hello & <friend> 😀');
+  const back = new URL(screen.SoftKey.find(key => key.Label[0] === 'Back').URI[0]);
+  expect(back.pathname).toBe('/yealink_vv/voicemail_detail');
+  expect(Object.fromEntries(back.searchParams)).toEqual({ user_id: '1000', domain: 'example.test', auth: config.phoneAccessToken, folder: 'save', file: 'vm-123.wav' });
+  expect(service.saveVoicemail).not.toHaveBeenCalled();
+});
+
+test('long transcripts paginate without losing text or splitting emoji', async () => {
+  const text = ('Words & 😀 '.repeat(130) + 'end').trim();
+  service.fetchVoicemailDetail.mockResolvedValue({ ...message, 'file-transcript-text': text });
+  let url = route('/voicemail_transcript', '&folder=new&file=vm-123.wav');
+  let combined = '';
+  let count = 0;
+  while (url) {
+    const response = await request(app).get(url);
+    const screen = (await parseStringPromise(response.text)).YealinkIPPhoneTextScreen;
+    const chunk = screen.Text[0];
+    expect(Array.from(chunk).length).toBeLessThanOrEqual(500);
+    expect(chunk).not.toMatch(/\uFFFD/);
+    combined += chunk;
+    if (count++) expect(screen.SoftKey.some(key => key.Label[0] === 'Previous')).toBe(true);
+    const next = screen.SoftKey.find(key => key.Label[0] === 'Next');
+    url = next ? new URL(next.URI[0]).pathname + new URL(next.URI[0]).search : null;
+  }
+  expect(count).toBeGreaterThan(1);
+  expect(combined).toBe(text);
+  const last = await request(app).get(route('/voicemail_transcript', '&folder=new&file=vm-123.wav&page=999999'));
+  expect(last.text).not.toContain('<Label>Next</Label>');
+});
+
+test('transcript handles unavailable, missing, invalid and failed requests', async () => {
+  service.fetchVoicemailDetail.mockResolvedValueOnce(message);
+  const unavailable = await request(app).get(route('/voicemail_transcript', '&folder=new&file=vm.wav'));
+  expect(unavailable.status).toBe(200);
+  expect(unavailable.text).toContain('Transcription not available');
+  service.fetchVoicemailDetail.mockResolvedValueOnce(null);
+  expect((await request(app).get(route('/voicemail_transcript', '&folder=new&file=vm.wav'))).status).toBe(404);
+  expect((await request(app).get(route('/voicemail_transcript'))).status).toBe(400);
+  expect((await request(app).get(route('/voicemail_transcript', '&folder=new&file=vm.wav&page=-1'))).status).toBe(400);
+  service.fetchVoicemailDetail.mockRejectedValueOnce(new Error('secret'));
+  const failed = await request(app).get(route('/voicemail_transcript', '&folder=new&file=vm.wav'));
+  expect(failed.status).toBe(502);
+  expect(failed.text).not.toContain('secret');
 });
 test.each(['&folder=other', '&folder=new&file=..%2Fsecret', '&folder=new&file[]=vm.wav', '&folder=new&page=-1'])('rejects malformed navigation %s', async extra => {
   expect((await request(app).get(route('', extra))).status).toBe(400);
@@ -146,4 +207,36 @@ test('compact entry fits this T57W value limit after provisioning expansion', ()
   const { compactToken } = require('../app/utils/phoneAuth');
   const url = 'https://core1-iad.sedemotwo.ucaas.tech/v?u=1500&d=sedemotwo&k=' + compactToken();
   expect(url.length).toBeLessThanOrEqual(99);
+});
+
+test('list offers separate Play while Select still opens detail', async () => {
+  service.fetchVoicemails.mockResolvedValueOnce([message]);
+  const response = await request(app).get(route('', '&folder=new'));
+  const menu = (await parseStringPromise(response.text)).YealinkIPPhoneTextMenu;
+  expect(new URL(menu.MenuItem[0].URI[0]).pathname).toBe('/yealink_vv/voicemail_detail');
+  expect(menu.MenuItem[0].Selection[0]).toBe(message.filename);
+  expect(menu.SoftKey.map(key => key.Label[0])).toEqual(['Select', 'Play']);
+  const play = new URL(menu.SoftKey.find(key => key.Label[0] === 'Play').URI[0]);
+  expect(play.pathname).toBe('/yealink_vv/execute_play_selected');
+  expect(play.searchParams.get('auth')).toBe(config.phoneAccessToken);
+  service.fetchVoicemailDetail.mockResolvedValueOnce(message);
+  const detail = await request(app).get(new URL(menu.MenuItem[0].URI[0]).pathname + new URL(menu.MenuItem[0].URI[0]).search + '&selection=' + message.filename);
+  expect(detail.status).toBe(200);
+});
+
+test('selected Play fetches the highlighted message and returns Wav.Play', async () => {
+  service.fetchVoicemailDetail.mockResolvedValueOnce(message);
+  const response = await request(app).get(route('/execute_play_selected', '&folder=new&selection=vm-123.wav'));
+  expect(response.status).toBe(200);
+  expect(service.fetchVoicemailDetail).toHaveBeenCalledWith('1000', 'example.test', 'vm-123.wav', 'new');
+  const doc = await parseStringPromise(response.text);
+  expect(doc.YealinkIPPhoneExecute.ExecuteItem[0].$.URI).toBe('Wav.Play:' + message['file-access-url']);
+});
+
+test('selected Play rejects missing selection, invalid filenames and missing auth', async () => {
+  for (const extra of ['&folder=new', '&folder=new&selection=..%2Fsecret', '&folder=new&selection[]=vm.wav']) {
+    expect((await request(app).get(route('/execute_play_selected', extra))).status).toBe(400);
+  }
+  expect((await request(app).get('/yealink_vv/execute_play_selected?user_id=1000&domain=example.test&folder=new&selection=vm-123.wav')).status).toBe(403);
+  expect(service.fetchVoicemailDetail).not.toHaveBeenCalled();
 });

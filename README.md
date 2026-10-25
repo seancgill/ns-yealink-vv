@@ -2,6 +2,8 @@
 
 Give Yealink desk phones a visual voicemail menu backed by **NetSapiens API v2**. Users can browse New, Saved and Trash, view caller/date/duration, play messages, save/restore, delete and forward to another extension in the same domain.
 
+When a message detail contains transcript text, its menu also offers **Read Transcript**. This opens a text screen with Back and Previous/Next navigation for long transcripts. Availability follows the message text rather than the user's current transcription setting, so existing transcripts remain readable after transcription is disabled. No additional user-profile API permission is needed. An empty transcript shows `Transcription not available` if its screen is requested directly.
+
 The phone's mailbox comes from NetSapiens Endpoints provisioning tokens. You do not hardcode customer domains or extensions in the application code.
 
 ## How it works
@@ -147,6 +149,7 @@ See [provisioning details and custom tokens](docs/PROVISIONING.md) for alternati
 Use disposable messages and a destination user with a voicemail PIN. Check on a real phone:
 
 - Folders, caller details, Back, Play and Stop.
+- Read Transcript on a transcribed message, including Back and Previous/Next for a long transcript. Transcript pages currently use a conservative 500 Unicode code points; T57W text capacity and navigation still require handset validation.
 - Save moves to Saved; Delete moves to Trash; Restore moves to Saved.
 - Forward prompts for an extension and the destination can **play** the forwarded message.
 - Delete from Trash is permanent; test only with a disposable recording.

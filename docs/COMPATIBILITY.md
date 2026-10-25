@@ -43,8 +43,22 @@ Live read-only checks verified mailbox listing and object-shaped message details
 
 ## Other versions
 
+### Transcript addition (2026-10-07)
+
+The source-chat handoff recorded a live read-only check on core1 build `45.0.1`: voicemail detail returned transcript text in `file-transcript-text`, with no generic `transcription` field. The adapter preserves that field and accepts string-valued `transcription` as a compatibility fallback. This checkout could not reach the core for a repeat version check.
+
+The matching v45 user schema documents `voicemail-transcription-enabled` as `no` or a vendor name. The app does not query that setting: it offers Read Transcript only when the selected message has nonempty text, including transcripts retained after a setting change. The authenticated transcript route reads message detail without changing voicemail state.
+
+Long transcripts use pages of at most 500 Unicode code points with Back, Previous and Next softkeys. That size is a pilot choice, not a verified Yealink limit. Automated tests cover normalization, authenticated navigation, XML escaping, unavailable text and pagination; handset rendering and navigation remain untested.
+
 API major v44: unverified. API major v46: unverified. Other Yealink models/firmware: unverified. The checker intentionally rejects unsupported API majors; evaluate them with their matching schema and independent live probes before rollout.
 
 ## Follow-up verification (2026-10-05)
 
 The missing media was traced to malformed SSH public-key type labels in the file-replicator account's authorized keys. After correction, restricted SCP access passed in both directions. A fresh voicemail appeared on the second core approximately 1–2 seconds after creation; recording hashes matched, and both cores returned HTTP 200 for metadata and audio. Load-balanced API access was restored and repeated XML folder/detail checks passed. Earlier failed recordings still required a separate backfill. The XML application itself was hosted on one core; API redundancy does not establish application-host failover.
+
+Custom Exit buttons are omitted from menus and transcript screens. Back follows app navigation; use the native Home icon to leave the app immediately. The user confirmed native Home and transcript display on T57W firmware 96.87.0.22; pagination still needs handset verification. The Forward input screen retains its native controls.
+
+The voicemail list now offers a separate Play softkey; Select retains message details. MenuItem Selection carries the filename to an authenticated selected-play route. Custom softkey forwarding of Selection remains a T57W handset probe: missing selection returns an error rather than playing an arbitrary message. No automatic playback occurs when opening a folder or selecting details.
+
+T57W handset test confirmed separate list Play works. Custom list Back caused a loading error during playback, while the native curved-arrow Back stopped playback successfully. The nonempty voicemail list therefore omits custom Back; message details and transcript retain their working Back controls. This is handset-observed behavior, not an inferred playback guarantee.

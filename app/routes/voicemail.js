@@ -3,11 +3,11 @@ const service = require('../services/netsapiensService');
 const xml = require('../utils/xmlBuilder');
 const config = require('../../config/default');
 const { verify, validIdentity } = require('../utils/phoneAuth');
-const actions = new Set(['/', '/voicemail_detail', '/execute_play', '/execute_stop', '/save_voicemail', '/delete_voicemail', '/forward_voicemail_input', '/forward_voicemail']);
+const actions = new Set(['/', '/voicemail_detail', '/voicemail_transcript', '/execute_play', '/execute_play_selected', '/execute_stop', '/save_voicemail', '/delete_voicemail', '/forward_voicemail_input', '/forward_voicemail']);
 router.use((req, res, next) => {
   if (!actions.has(req.path)) return next('router');
   res.type('application/xml');
-  const allowed = new Set(['user_id', 'domain', 'auth', 'folder', 'file', 'voicemail_id', 'page', 'confirm', 'forward_to']);
+  const allowed = new Set(['user_id', 'domain', 'auth', 'folder', 'file', 'voicemail_id', 'page', 'confirm', 'forward_to', 'selection']);
   if (Object.keys(req.query).some(key => !allowed.has(key))) return res.status(400).send(xml.error('Voicemail Error', 'Invalid request parameters.'));
   const { user_id: user, domain, auth } = req.query;
   if (!validIdentity(user, domain)) return res.status(400).send(xml.error('Voicemail Error', 'Missing or invalid user ID or domain.'));
@@ -15,7 +15,10 @@ router.use((req, res, next) => {
   try { config.tokenForDomain(domain); }
   catch { return res.status(403).send(xml.error('Access Denied', 'This domain is not enabled for voicemail.')); }
   const folder = req.query.folder === 'saved' ? 'save' : req.query.folder;
-  const file = req.query.file ?? req.query.voicemail_id;
+  const file = req.path === '/execute_play_selected' ? req.query.selection : (req.query.file ?? req.query.voicemail_id);
+  if (req.query.selection !== undefined && (typeof req.query.selection !== 'string' || !/^[A-Za-z0-9_.-]{1,255}$/.test(req.query.selection) || req.query.selection.includes('..'))) return res.status(400).send(xml.error('Voicemail Error', 'Select a voicemail to play.', xml.uri({ user_id: user, domain, auth }, '', { folder })));
+  if (req.path === '/execute_play_selected' && !file) return res.status(400).send(xml.error('Voicemail Error', 'Select a voicemail to play.', xml.uri({ user_id: user, domain, auth }, '', { folder })));
+  if (req.path !== '/execute_play_selected' && req.query.selection !== undefined && req.query.selection !== file) return res.status(400).send(xml.error('Voicemail Error', 'Invalid message selection.'));
   if ((folder !== undefined && !['new', 'save', 'trash'].includes(folder))
       || (file !== undefined && (typeof file !== 'string' || !/^[A-Za-z0-9_.-]{1,255}$/.test(file) || file.includes('..')))) return res.status(400).send(xml.error('Voicemail Error', 'Invalid folder or voicemail filename.'));
   if (req.path !== '/' && (!folder || !file)) return res.status(400).send(xml.error('Voicemail Error', 'Missing folder or voicemail filename.'));
@@ -40,7 +43,12 @@ router.get('/voicemail_detail', screen(async ctx => {
   if (!vm) { const error = new Error('Missing voicemail'); error.status = 404; throw error; }
   return xml.detail(ctx, vm);
 }));
-for (const [path, command] of [['/execute_play', 'Wav.Play'], ['/execute_stop', 'Wav.Stop']]) router.get(path, screen(async ctx => {
+router.get('/voicemail_transcript', screen(async ctx => {
+  const vm = await service.fetchVoicemailDetail(ctx.user_id, ctx.domain, ctx.file, ctx.folder);
+  if (!vm) { const error = new Error('Missing voicemail'); error.status = 404; throw error; }
+  return xml.transcript(ctx, vm);
+}));
+for (const [path, command] of [['/execute_play', 'Wav.Play'], ['/execute_play_selected', 'Wav.Play'], ['/execute_stop', 'Wav.Stop']]) router.get(path, screen(async ctx => {
   const vm = await service.fetchVoicemailDetail(ctx.user_id, ctx.domain, ctx.file, ctx.folder);
   if (!vm) { const error = new Error('Missing voicemail'); error.status = 404; throw error; }
   return xml.execute(command, service.playbackUrl(vm['file-access-url']));

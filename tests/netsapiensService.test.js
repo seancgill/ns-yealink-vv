@@ -22,6 +22,18 @@ test('object detail remains supported', async () => {
   api.request.mockResolvedValueOnce({ data: { filename: 'vm.wav' } });
   expect((await service.fetchVoicemailDetail('1000', 'example.test', 'vm.wav', 'new')).filename).toBe('vm.wav');
 });
+
+test.each([
+  [{ 'file-transcript-text': 'Live text', transcription: 'Fallback' }, 'Live text'],
+  [{ transcription: 'Fallback' }, 'Fallback'],
+  [{ 'file-transcript-text': '', transcription: 'Fallback' }, ''],
+  [{ 'file-transcript-text': null, transcription: 'Fallback' }, 'Fallback'],
+  [{ transcription: {} }, ''],
+])('normalizes transcript fields safely: %j', async (fields, expected) => {
+  api.request.mockResolvedValueOnce({ data: { filename: 'vm.wav', ...fields } });
+  const vm = await service.fetchVoicemailDetail('1000', 'example.test', 'vm.wav', 'new');
+  expect(vm['file-transcript-text']).toBe(expected);
+});
 test('API failures throw sanitized errors and only detail 404 becomes null', async () => {
   api.request.mockRejectedValueOnce({ message: 'Bearer secret', response: { status: 401, data: 'secret' } });
   await expect(service.fetchVoicemails('1000', 'example.test', 'new')).rejects.toMatchObject({ message: 'NetSapiens request failed', status: 401 });

@@ -32,6 +32,9 @@ function normalize(vm) {
     'recorded-datetime': vm['recorded-datetime'] || vm.RecordTime || vm['created-datetime'] || vm.filedate,
     'file-duration-seconds': vm['file-duration-seconds'] ?? vm.NmsRecDuration ?? vm.length ?? 0,
     'file-access-url': vm['file-access-url'] || vm['file-access-url '] || vm.remotepath,
+    // The live v45 detail response uses file-transcript-text; schemas also document transcription.
+    'file-transcript-text': typeof vm['file-transcript-text'] === 'string' ? vm['file-transcript-text']
+      : typeof vm.transcription === 'string' ? vm.transcription : '',
   };
 }
 function playbackUrl(value) {
